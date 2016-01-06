@@ -10,3 +10,8 @@
 [ReactiveX组织](https://github.com/ReactiveX)
 [RxJava](https://github.com/ReactiveX/RxJava)
 [RxAndroid](https://github.com/ReactiveX/RxAndroid)
+
+[RxJava-Android-Samples](https://github.com/kaushikgopal/RxJava-Android-Samples)
+[用RxJava实现事件总线(Event Bus)](http://www.jianshu.com/p/ca090f6e2fe2)
+
+
