@@ -235,14 +235,14 @@ public class ApplicationTest extends ApplicationTestCase<Application> {
 
     /**
      * 线程问题
-     * <p>
+     * <p/>
      * Schedulers.immediate(): 直接在当前线程运行，相当于不指定线程。这是默认的 Scheduler。
      * Schedulers.newThread(): 总是启用新线程，并在新线程执行操作。
      * Schedulers.io(): I/O 操作（读写文件、读写数据库、网络信息交互等）所使用的 Scheduler。行为模式和 newThread() 差不多，区别在于 io() 的内部实现是是用一个无数量上限的线程池，可以重用空闲的线程，因此多数情况下 io() 比 newThread() 更有效率。不要把计算工作放在 io() 中，可以避免创建不必要的线程。
      * Schedulers.computation(): 计算所使用的 Scheduler。这个计算指的是 CPU 密集型计算，即不会被 I/O 等操作限制性能的操作，例如图形的计算。这个 Scheduler 使用的固定的线程池，大小为 CPU 核数。不要把 I/O 操作放在 computation() 中，否则 I/O 操作的等待时间会浪费 CPU。
      * 另外， Android 还有一个专用的 AndroidSchedulers.mainThread()，它指定的操作将在 Android 主线程运行。
      * 有了这几个 Scheduler ，就可以使用 subscribeOn() 和 observeOn() 两个方法来对线程进行控制了。
-     * <p>
+     * <p/>
      * subscribeOn(): 指定 subscribe() 所发生的线程，即 Observable.OnSubscribe 被激活时所处的线程。或者叫做事件产生的线程。
      * observeOn(): 指定 Subscriber 所运行在的线程。或者叫做事件消费的线程。
      */
@@ -329,6 +329,16 @@ public class ApplicationTest extends ApplicationTestCase<Application> {
 
     /**
      * flatMap2:根据List<Student>打印student的所选课程
+     * flatMap() 和 map() 有一个相同点：它也是把传入的参数转化之后返回另一个对象。
+     * 但需要注意，和 map() 不同的是， flatMap() 中返回的是个 Observable 对象，
+     * 并且这个 Observable 对象并不是被直接发送到了 Subscriber 的回调方法中。
+     * flatMap() 的原理是这样的：
+     * 1. 使用传入的事件对象创建一个 Observable 对象；
+     * 2. 并不发送这个 Observable, 而是将它激活，于是它开始发送事件；
+     * 3. 每一个创建出来的 Observable 发送的事件，都被汇入同一个 Observable ，
+     * 而这个 Observable 负责将这些事件统一交给 Subscriber 的回调方法。
+     * 这三个步骤，把事件拆成了两级，通过一组新创建的 Observable 将初始的对象『铺平』之后通过统一路径分发了下去。
+     * 而这个『铺平』就是 flatMap() 所谓的 flat。
      */
     @Test
     public void test11() {
@@ -348,7 +358,7 @@ public class ApplicationTest extends ApplicationTestCase<Application> {
                 return student.getCourses();
             }
         }).subscribe(new Action1<List<Course>>() {
-        // 这里使用Action1无效，因为Action1只支持实现onNext，onError，也就是参数泛型只支持String和Throwable。
+            // 这里使用Action1无效，因为Action1只支持实现onNext，onError，也就是参数泛型只支持String和Throwable。
             @Override
             public void call(List<Course> courses) {
                 for (Course c : courses)
@@ -357,5 +367,238 @@ public class ApplicationTest extends ApplicationTestCase<Application> {
             }
         });
     }
+
+    /**
+     * flatMap3:根据List<Student>打印student的所选课程
+     */
+    @Test
+    public void test12() {
+        List<Student> students = new ArrayList<>();
+        List<Course> courses = new ArrayList<>();
+        courses.add(new Course("计算机基础"));
+        students.add(new Student("allen", courses));
+        courses.add(new Course("android"));
+        students.add(new Student("shark", courses));
+        courses.add(new Course("生活"));
+        students.add(new Student("iversion", courses));
+        courses.add(new Course("篮球"));
+        students.add(new Student("tracy", courses));
+
+        Observable.from(students).flatMap(new Func1<Student, Observable<Course>>() {
+            @Override
+            public Observable<Course> call(Student student) {
+                return Observable.from(student.getCourses());
+            }
+        }).subscribe(new Subscriber<Course>() {
+            @Override
+            public void onCompleted() {
+
+            }
+
+            @Override
+            public void onError(Throwable e) {
+
+            }
+
+            @Override
+            public void onNext(Course course) {
+                Log.e(TAG, course.getName());
+            }
+
+        });
+    }
+
+    /**
+     * lift变换：代理
+     * lift() 是针对事件项和事件序列(Onsubscrib)的
+     */
+    @Test
+    public void test13() {
+        Observable.just(12).lift(new Observable.Operator<String, Integer>() {
+            @Override
+            public Subscriber<? super Integer> call(final Subscriber<? super String> subscriber) {
+                // 代理内容
+
+                return new Subscriber<Integer>() {
+                    @Override
+                    public void onCompleted() {
+                        // 旧的观察者
+                        subscriber.onCompleted();
+                        Log.e("aaa", "新的subscriber:onCompleted");
+                    }
+
+                    @Override
+                    public void onError(Throwable e) {
+                        subscriber.onError(e);
+                        Log.e("aaa", "新的subscriber:onError");
+                    }
+
+                    @Override
+                    public void onNext(Integer integer) {
+                        // 代理前
+                        String s = integer + "";
+                        Log.e("aaa", "新的Subscriber：onNext代理前");
+                        subscriber.onNext(s);
+                        // 代理后
+                        Log.e("aaa", "新的Subscriber：onNext代理后");
+
+                    }
+                };
+            }
+        }).subscribe(new Subscriber<String>() {
+            @Override
+            public void onCompleted() {
+
+                Log.e("aaa", "旧的subscriber:onCompleted");
+            }
+
+            @Override
+            public void onError(Throwable e) {
+                Log.e("aaa", "旧的subscriber:onError");
+            }
+
+            @Override
+            public void onNext(String s) {
+                Log.e("aaa", "旧的subscriber:onNext---" + s);
+            }
+        });
+
+
+    }
+
+    /**
+     * compose:对 Observable 整体的变换
+     */
+    @Test
+    public void test14() {
+        // 非代码，代码说明
+       /* public class LiftAllTransformer implements Observable.Transformer<Integer, String> {
+            @Override
+            public Observable<String> call(Observable<Integer> observable) {
+                return observable
+                        .lift1()
+                        .lift2()
+                        .lift3()
+                        .lift4();
+            }
+        }
+        ...
+        Transformer liftAll = new LiftAllTransformer();
+        observable1.compose(liftAll).subscribe(subscriber1);
+        observable2.compose(liftAll).subscribe(subscriber2);
+        observable3.compose(liftAll).subscribe(subscriber3);
+        observable4.compose(liftAll).subscribe(subscriber4);*/
+    }
+
+    /**
+     * 多线程切换
+     * subscribOn() 指的是事件发生的线程，Observable生成的线程，事件产生只有一个，所以只能定义一个。
+     * observeOn() 指定的是它之后的操作（事件消费）所在的线程。因此如果有多次切换线程的需求，只要在每个想要切换线程的位置调用一次 observeOn() 即可。
+     * SubscribeOn和observeOn其内部实现原理也是代理，也就是list。
+     */
+    @Test
+    public void test15() {
+       /* Observable.just(1, 2, 3, 4) // IO 线程，由 subscribeOn() 指定
+                .subscribeOn(Schedulers.io())
+                .observeOn(Schedulers.newThread())
+                .map(mapOperator) // 新线程，由 observeOn() 指定
+                .observeOn(Schedulers.io())
+                .map(mapOperator2) // IO 线程，由 observeOn() 指定
+                .observeOn(AndroidSchedulers.mainThread)
+                .subscribe(subscriber);  // Android 主线程，由 observeOn() 指定*/
+    }
+
+    /**
+     * doOnSubscribe: Observable.doOnSubscribe(),
+     * 它和 Subscriber.onStart() 同样是在 subscribe() 调用后而且在事件发送前执行，但区别在于它可以指定线程。
+     * 默认情况下， doOnSubscribe() 执行在 subscribe() 发生的线程；.
+     * 而如果在 doOnSubscribe() 之后有 subscribeOn() 的话，它将执行在离它最近的 subscribeOn() 所指定的线程。
+     * <p/>
+     * 所解决的问题，如：subscriber中的onstart方法，onstart方法是属于subscripber的，所以其线程和他一致，
+     * 可是如果在时间发送前的事件需要切换线程，比较麻烦。
+     */
+    @Test
+    public void test16() {
+       /* Observable.create(onSubscribe)
+                .subscribeOn(Schedulers.io())
+                .doOnSubscribe(new Action0() {
+                    @Override
+                    public void call() {
+                        progressBar.setVisibility(View.VISIBLE); // 需要在主线程执行
+                    }
+                })
+                .subscribeOn(AndroidSchedulers.mainThread()) // 指定主线程
+                .observeOn(AndroidSchedulers.mainThread())
+                .subscribe(subscriber);*/
+    }
+
+    /**
+     * 与retrofit结合使用案例1：请求完数据后要进行数据库更新整理再显示
+     */
+    @Test
+    public void test17() {
+        /*getUser(userId)
+                .doOnNext(new Action1<User>() {
+                    @Override
+                    public void call(User user) {
+                        processUser(user);
+                    }).observeOn(AndroidSchedulers.mainThread())
+                            .subscribe(new Observer<User>() {
+                        @Override
+                        public void onNext(User user) {
+                            userView.setUser(user);
+                        }
+
+                        @Override
+                        public void onCompleted() {
+                        }
+
+                        @Override
+                        public void onError(Throwable error) {
+                            // Error handling
+                            ...
+                        }
+                    });*/
+    }
+
+    /**
+     * 与retrofit结合案例2：假设 /user 接口并不能直接访问，而需要填入一个在线获取的 token，也就是多次网络请求
+     */
+    @Test
+    public void test18() {
+        /*
+        @GET("/token")
+        public Observable<String> getToken();
+
+        @GET("/user")
+        public Observable<User> getUser(@Query("token") String token, @Query("userId") String userId);
+
+        ...
+
+        getToken()
+                .flatMap(new Func1<String, Observable<User>>() {
+                    @Override
+                    public Observable<User> onNext(String token) {
+                        return getUser(token, userId);
+                    })
+                            .observeOn(AndroidSchedulers.mainThread())
+                            .subscribe(new Observer<User>() {
+                        @Override
+                        public void onNext(User user) {
+                            userView.setUser(user);
+                        }
+
+                        @Override
+                        public void onCompleted() {
+                        }
+
+                        @Override
+                        public void onError(Throwable error) {
+                            // Error handling
+                            ...
+                        }
+                    });*/
+    }
+
 
 }
